@@ -38,22 +38,22 @@ type GinConfig struct {
 }
 
 type Environment struct {
-	Crash bool `long:"crash" description:"crash" env:"CRASH"`
-	GinConfig            GinConfig            `group:"gin" namespace:"gin" env-namespace:"GIN"`
-	PostgresConfig       PostgresConfig       `group:"postgres" namespace:"postgres" env-namespace:"POSTGRES"`
-	MigrationConfig      MigrationConfig      `group:"migration" namespace:"migration" env-namespace:"MIGRATION"`
+	Crash              bool               `long:"crash" description:"crash" env:"CRASH"`
+	GinConfig          GinConfig          `group:"gin" namespace:"gin" env-namespace:"GIN"`
+	PostgresConfig     PostgresConfig     `group:"postgres" namespace:"postgres" env-namespace:"POSTGRES"`
+	MigrationConfig    MigrationConfig    `group:"migration" namespace:"migration" env-namespace:"MIGRATION"`
 	StripeClientConfig StripeClientConfig `group:"stripe" namespace:"stripe" env-namespace:"STRIPE"`
 }
 
 type User struct {
-	ID int `json:"id"`
+	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
 type Payment struct {
-	ID string `json:"id"`
-	UserID int `json:"userId"`
-	Money int `json:"money"`
+	ID     string `json:"id"`
+	UserID int    `json:"userId"`
+	Money  int    `json:"money"`
 	Status string `json:"status"`
 }
 
@@ -131,6 +131,7 @@ func main() {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 				return
 			}
+			logger.Info("charge success", zap.Any("userID", payment.UserID), zap.Any("money", payment.Money))
 
 			// when server crash or database crash
 			// will charge user money again
@@ -154,12 +155,13 @@ func main() {
 
 type ChargeRequest struct {
 	UserID int `json:"userId"`
-	Money int `json:"money"`
+	Money  int `json:"money"`
 }
+
 func stripeAPICharge(host string, userID int, money int) error {
 	body := ChargeRequest{
 		UserID: userID,
-		Money: money,
+		Money:  money,
 	}
 	b, err := json.Marshal(&body)
 	if err != nil {
