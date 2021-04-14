@@ -125,27 +125,24 @@ func main() {
 				return
 			}
 
-			// call stripe api to charge
-			err = stripeAPICharge(env.StripeClientConfig.Host, payment.UserID, payment.Money)
+			payment.Status = "success"
+			_, err = pgClient.Model(&payment).Insert()
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 				return
 			}
-			logger.Info("charge success", zap.Any("userID", payment.UserID), zap.Any("money", payment.Money))
 
-			// when server crash or database crash
-			// will charge user money again
 			if !env.Crash {
-				payment.Status = "success"
-				_, err = pgClient.Model(&payment).Where("id = ?id").Update()
+				// call stripe api to charge
+				err = stripeAPICharge(env.StripeClientConfig.Host, payment.UserID, payment.Money)
 				if err != nil {
-					logger.Error("how to solve this problem?", zap.Error(err))
 					c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 					return
 				}
+				logger.Info("charge success", zap.Any("userID", payment.UserID), zap.Any("money", payment.Money))
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "oh no crash, sorry bro. We will charge this user again"})
-				return
+				logger.Error("charge fail", zap.Any("userID", payment.UserID), zap.Any("money", payment.Money))
+				c.JSON(http.StatusInternalServerError, gin.H{"id": payment.ID, "message": "actually we do not charge you haha"})
 			}
 			c.JSON(http.StatusCreated, gin.H{"id": payment.ID})
 		})
