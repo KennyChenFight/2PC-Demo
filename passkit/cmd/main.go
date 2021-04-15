@@ -13,6 +13,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/jessevdk/go-flags"
 	"go.uber.org/zap"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -51,10 +52,11 @@ type User struct {
 }
 
 type Payment struct {
-	ID     string `json:"id"`
-	UserID int    `json:"userId"`
-	Money  int    `json:"money"`
-	Status string `json:"status"`
+	ID       string `json:"id"`
+	UserID   int    `json:"userId"`
+	Money    int    `json:"money"`
+	Status   string `json:"status"`
+	ChargeID string `json:"chargeId"`
 }
 
 func main() {
@@ -125,28 +127,40 @@ func main() {
 				return
 			}
 
-			// call stripe api to charge
-			err = stripeAPICharge(env.StripeClientConfig.Host, payment.UserID, payment.Money)
+			// call stripe API to create charge object
+			chargeID, err := stripeAPICreateCharge(env.StripeClientConfig.Host, payment.UserID, payment.Money)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 				return
 			}
-			logger.Info("charge success", zap.Any("userID", payment.UserID), zap.Any("money", payment.Money))
+			logger.Info("charge success", zap.Any("chargeID", chargeID))
 
-			// when server crash or database crash
-			// will charge user money again
-			if !env.Crash {
-				payment.Status = "success"
-				_, err = pgClient.Model(&payment).Where("id = ?id").Update()
-				if err != nil {
-					logger.Error("how to solve this problem?", zap.Error(err))
-					c.JSON(http.StatusInternalServerError, gin.H{"error": err})
-					return
-				}
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "oh no crash, sorry bro. We will charge this user again"})
+			payment.ChargeID = chargeID
+			_, err = pgClient.Model(&payment).WherePK().Update()
+			if err != nil {
+				logger.Error("fail to update charge id in payment", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 				return
 			}
+
+			// call stripe API to update charge and charge user money
+			err = stripeAPIUpdateCharge(env.StripeClientConfig.Host, chargeID)
+			if err != nil && err != ErrAlreadyCharge {
+				logger.Error("fail to update charge in stripeAPI", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+				return
+			}
+
+			payment.Status = "success"
+			payment.ChargeID = chargeID
+			_, err = pgClient.Model(&payment).WherePK().Update()
+			if err != nil {
+				logger.Error("fail to update payment to success status", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+				return
+			}
+
+			logger.Info("success pay!")
 			c.JSON(http.StatusCreated, gin.H{"id": payment.ID})
 		})
 	}
@@ -158,16 +172,46 @@ type ChargeRequest struct {
 	Money  int `json:"money"`
 }
 
-func stripeAPICharge(host string, userID int, money int) error {
+func stripeAPICreateCharge(host string, userID int, money int) (string, error) {
 	body := ChargeRequest{
 		UserID: userID,
 		Money:  money,
 	}
 	b, err := json.Marshal(&body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/charges", host), bytes.NewBuffer(b))
+	if err != nil {
+		return "", err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusCreated {
+		return "", errors.New("fail")
+	}
+
+	responseBodyBytes, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	var responseBody map[string]string
+	err = json.Unmarshal(responseBodyBytes, &responseBody)
+	if err != nil {
+		return "", err
+	}
+
+	return responseBody["id"], nil
+}
+
+var ErrAlreadyCharge = errors.New("already charge this user")
+
+func stripeAPIUpdateCharge(host string, chargeID string) error {
+	req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/v1/charges/%s", host, chargeID), nil)
 	if err != nil {
 		return err
 	}
@@ -177,8 +221,13 @@ func stripeAPICharge(host string, userID int, money int) error {
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusCreated {
-		return errors.New("fail")
+	if res.StatusCode != http.StatusNoContent {
+		if res.StatusCode == http.StatusConflict {
+			return ErrAlreadyCharge
+		} else if res.StatusCode == http.StatusBadRequest {
+			return errors.New("can not find this charge")
+		}
+		return errors.New("unknown fail")
 	}
 	return nil
 }

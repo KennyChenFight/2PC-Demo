@@ -1,0 +1,1 @@
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS charge_id UUID default uuid_generate_v4();
