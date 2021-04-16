@@ -1,4 +1,4 @@
-# 2pc-demo
+# 2PC-Demo
 ## 2PC可運用的情境
 參考 [Triton Ho 大神提供的例子](https://www.facebook.com/groups/616369245163622/permalink/1452268674907004)
 ### 情境1 (version1 branch)
