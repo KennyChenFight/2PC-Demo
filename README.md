@@ -47,5 +47,5 @@
 * Crash (demo crash problem for version1 and version2)
 
 ### stripeapi environment variable
-nope
+* PostgreSQL URL
 
