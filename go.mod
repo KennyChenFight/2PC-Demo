@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/KennyChenFight/golib v0.0.8
 	github.com/gin-gonic/gin v1.7.1
+	github.com/go-pg/pg/v10 v10.9.0
 	github.com/golang-migrate/migrate/v4 v4.14.1
 	github.com/jessevdk/go-flags v1.5.0
 	go.uber.org/zap v1.16.0
